@@ -1,0 +1,243 @@
+/* The video: a fixed full-screen layer behind the entire page. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1; /* behind all page content (main is its stacking context) */
+  pointer-events: none;
+  background: #080809;
+}
+/* Fades in after the intro so the sections on top stay readable. */
+.dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 8, 9, 0.6);
+  opacity: 0;
+}
+
+/* The intro: a tall transparent track whose text is pinned while you scroll. */
+.story {
+  position: relative;
+  z-index: 1;
+  height: 400vh;
+  margin-top: -64px; /* run behind the translucent nav */
+}
+.sticky {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100svh;
+  overflow: hidden;
+}
+.canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.shade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* just enough shading to keep the text readable - the video stays clear */
+  background:
+    linear-gradient(90deg, rgba(8, 8, 9, 0.55) 0%, rgba(8, 8, 9, 0.18) 32%, rgba(8, 8, 9, 0) 46%),
+    linear-gradient(180deg, rgba(8, 8, 9, 0.35) 0%, rgba(8, 8, 9, 0) 16%, rgba(8, 8, 9, 0) 85%, rgba(8, 8, 9, 0.6) 100%);
+}
+
+/* HUD - like a live camera overlay */
+.hud {
+  position: absolute;
+  top: 84px;
+  /* line up with the content column (same edge as the nav's Dashboard button) */
+  right: max(24px, calc((100vw - 1200px) / 2 + 24px));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(12, 12, 13, 0.55);
+  backdrop-filter: blur(10px);
+  font: 12px var(--font-mono);
+  color: #d8d4cb;
+}
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #fb7185;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.live i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fb7185;
+  animation: blink 1.4s ease-in-out infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+.hudCount b {
+  color: #fff;
+  font-size: 14px;
+  margin-left: 4px;
+}
+
+/* Text chapters */
+.heroChapter,
+.chapter {
+  position: absolute;
+  left: max(24px, calc((100vw - 1200px) / 2 + 24px));
+  top: 42%; /* a little above centre, clear of the cars in the lower half */
+  translate: 0 -50%;
+  width: min(560px, calc(100vw - 48px));
+  will-change: opacity, transform;
+}
+.heroChapter h1 {
+  font-size: clamp(40px, 6vw, 76px);
+  font-weight: 800;
+  margin: 18px 0 16px;
+  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.5);
+}
+.chapter h2 {
+  font-size: clamp(30px, 4vw, 50px);
+  font-weight: 800;
+  line-height: 1.14;
+  margin: 12px 0 14px;
+  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.5);
+}
+.heroChapter p,
+.chapter p {
+  font-size: 18px;
+  color: #d8d4cb;
+  margin: 0 0 26px;
+  max-width: 30em;
+}
+.gradient {
+  background: linear-gradient(90deg, #fff1d6, #ffcd6b 45%, #f2b544 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  background: transparent;
+  color: #d8d4cb;
+  font-size: 13px;
+}
+.eyebrow i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 10px var(--green);
+}
+.kicker {
+  font: 700 13px var(--font-mono);
+  color: var(--accent-2);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ctas {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.scrollHint {
+  margin-top: 44px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: #a39f96;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.scrollHint::after {
+  content: "";
+  width: 1px;
+  height: 36px;
+  background: linear-gradient(180deg, #a39f96, transparent);
+  animation: drip 1.8s ease-in-out infinite;
+  transform-origin: top;
+}
+@keyframes drip {
+  0% {
+    transform: scaleY(0);
+  }
+  60% {
+    transform: scaleY(1);
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 0;
+  }
+}
+
+.loading {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  translate: -50% 0;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: rgba(12, 12, 13, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #a39f96;
+  font: 12px var(--font-mono);
+}
+.progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.progress div {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transform-origin: left;
+  transform: scaleX(0);
+}
+
+@media (max-width: 720px) {
+  .story {
+    height: 360vh;
+  }
+  .shade {
+    background: linear-gradient(180deg, rgba(8, 8, 9, 0.35) 0%, rgba(8, 8, 9, 0.2) 40%, rgba(8, 8, 9, 0.9) 100%);
+  }
+  .heroChapter,
+  .chapter {
+    top: auto;
+    bottom: 64px;
+    translate: none;
+    left: 16px;
+    width: calc(100vw - 32px);
+  }
+  .heroChapter p,
+  .chapter p {
+    font-size: 16px;
+  }
+  .hud {
+    top: 76px;
+    right: 12px;
+    left: 12px;
+    justify-content: space-between;
+  }
+  .hudPlace {
+    display: none;
+  }
+  .scrollHint {
+    display: none;
+  }
+}

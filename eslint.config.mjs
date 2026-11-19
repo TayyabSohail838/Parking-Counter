@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Third-party runtimes copied in by scripts/copy-vendor.mjs
+    "public/vendor/**",
   ]),
 ]);
 
