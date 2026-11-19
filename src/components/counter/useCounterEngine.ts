@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { endSession, recordEvents, startSession } from "@/lib/history";
 import { getDetector, removeProgressListener, type Detector, type LoadProgress } from "@/lib/vision/detector";
-import { CountingSession, type SessionConfig, type Track } from "@/lib/vision/tracker";
+import { CountingSession, LOW_CONF, type SessionConfig, type Track } from "@/lib/vision/tracker";
 import { CLASS_NAMES, type Backend, type Counts } from "@/lib/vision/types";
 
 const ANALYSE_WIDTH = 640; // frames are shrunk to this width before detection
@@ -114,7 +114,8 @@ export function useCounterEngine(videoRef: RefObject<HTMLVideoElement | null>, c
       canvas.getContext("2d", { willReadFrequently: true })!.drawImage(video, 0, 0, canvas.width, canvas.height);
 
       try {
-        const dets = await detector.detect(canvas, session.classIds);
+        // Low floor on purpose: weak detections only extend tracks (Tracker.update).
+        const dets = await detector.detect(canvas, session.detectIds, LOW_CONF);
         if (session !== sessionRef.current) continue; // settings changed mid-frame
         const { tracks, events: newEvents } = session.process(dets, canvas.width, canvas.height);
         resultRef.current = {
@@ -161,7 +162,7 @@ export function useCounterEngine(videoRef: RefObject<HTMLVideoElement | null>, c
     }
   }, [videoRef]);
 
-  const start = useCallback((source: "camera" | "file" = "camera") => {
+  const start = useCallback((source: "camera" | "file" | "link" = "camera") => {
     if (runningRef.current) return;
     runningRef.current = true;
     historyRef.current = startSession(source);

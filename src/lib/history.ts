@@ -25,7 +25,7 @@ export interface Session {
   id: string;
   start: number;
   end: number;
-  source: "camera" | "file";
+  source: "camera" | "file" | "link";
   sample?: boolean;
 }
 

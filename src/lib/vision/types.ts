@@ -12,6 +12,16 @@ export interface Detection {
 
 export type ClassGroup = "vehicles" | "people" | "all";
 export type Anchor = "center" | "bottom";
+/** "overhead" = camera looking straight down (drone, ceiling, high pole). */
+export type CameraView = "street" | "overhead";
+
+/**
+ * Seen from directly above, the COCO-trained YOLO model labels cars as
+ * "cell phone" (and sometimes "suitcase") - measured at 76-92% confidence on
+ * a top-down parking clip where "car" scored ~0. In overhead mode those
+ * look-alikes are read as cars. Never used for street-level cameras.
+ */
+export const OVERHEAD_ALIASES: Record<number, number> = { 67: 2, 28: 2 };
 export type Backend = "webgpu" | "wasm";
 
 // COCO class ids the YOLO model knows, limited to the ones we count.

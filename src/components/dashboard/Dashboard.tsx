@@ -53,7 +53,8 @@ function exportCsv(events: CountEvent[]) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `parking-counter-${new Date().toISOString().slice(0, 10)}.csv`;
+  const d = new Date(); // local date, not UTC, so the file is named after the user's day
+  a.download = `parking-counter-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -301,7 +302,7 @@ export function Dashboard() {
                         <div>
                           <b>{fmtDay(x.start)}</b>
                           <span className={s.muted}>
-                            {fmtTime(x.start)}–{fmtTime(x.end)} · {fmtDuration(x.end - x.start)} · {x.source === "file" ? "video file" : "camera"}
+                            {fmtTime(x.start)}–{fmtTime(x.end)} · {fmtDuration(x.end - x.start)} · {x.source === "file" ? "video file" : x.source === "link" ? "video link" : "camera"}
                           </span>
                         </div>
                         <strong>{x.count.toLocaleString()}</strong>

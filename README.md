@@ -24,9 +24,29 @@ camera / video ─► OpenCV.js ─► YOLO11 (ONNX Runtime Web) ─► NMS ─�
 2. OpenCV.js letterboxes it to 640×640 and builds the model input with `cv.blobFromImage`.
 3. ONNX Runtime Web runs YOLO11 and returns 8,400 candidate boxes. Boxes below the confidence threshold and duplicates are removed (NMS).
 4. The tracker gives each object a stable ID. An object is counted once when its path crosses the line. `cv.pointPolygonTest` checks whether it is inside the zone.
+   - **Two-stage matching (the ByteTrack idea):** detections down to 20% confidence can keep an existing track alive, but only those of 40% or more start a new one. Dark or partly hidden vehicles therefore keep their ID instead of flickering into "new" vehicles.
+   - **Class switches:** car, bus and truck may swap on the same vehicle without breaking its track. The label shown is the one the vehicle was seen as most often.
+   - **Parked vehicles:** a track that isn't moving is remembered 5× longer.
+   - **Zone visitors:** a vehicle counts as a zone visitor only after it has been inside for 5 frames in a row.
 5. The canvas draws boxes, trails, the line and the zone every screen refresh, and the dashboard updates live.
 
 Measured in Microsoft Edge on a laptop with Intel integrated graphics: the detector is ready in about 9 s on the first visit, then runs at **about 11–12 FPS on WebGPU**. The CPU fallback is about 360 ms per frame.
+
+### Sources: camera, video file or video link
+
+- **Camera:** any webcam or phone camera.
+- **Video file…:** a recording from your device. It never leaves the browser.
+- **Video link:** paste a direct link to an `.mp4` or `.webm` file from anywhere on the web.
+  - Browsers don't let a page read pixels from another site's video, so the link is streamed through the app's own `/api/video` route.
+  - That route only fetches public `http(s)` addresses. It refuses localhost and private-network addresses (checked on every redirect) and refuses anything that isn't a video, up to 500 MB.
+  - Web pages and YouTube links can't work. The app explains this when you paste one.
+  - On Vercel, the video's bytes pass through a serverless function, so long videos use function time.
+
+### Camera view: street level or overhead
+
+The YOLO11 model learned what cars look like from the side and at an angle. **Seen from directly above (drone, ceiling or high-pole cameras), it labels cars as "cell phone"**: measured at 76–92% confidence on a top-down parking clip, where "car" scored about 0.
+
+Set **Camera view → Overhead** for these cameras. The counter then reads those look-alikes ("cell phone", "suitcase") as cars and merges overlapping duplicates. On the Intel sample [car-detection.mp4](https://github.com/intel-iot-devkit/sample-videos) it counts all 4 cars in the correct directions; in street mode it finds 0. Keep **Street level** for normal cameras, so real phones are never counted.
 
 ## Project structure
 

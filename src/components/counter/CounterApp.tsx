@@ -5,7 +5,7 @@ import { LogoMark } from "@/components/brand/LogoMark";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { preload } from "react-dom";
 import type { SessionConfig } from "@/lib/vision/tracker";
-import type { Anchor, ClassGroup, NormPoint } from "@/lib/vision/types";
+import type { Anchor, CameraView, ClassGroup, NormPoint } from "@/lib/vision/types";
 import { EventLog, KpiRow, Timeline, VehicleMix } from "./Dashboard";
 import { useCounterEngine } from "./useCounterEngine";
 import { VideoStage, type DrawMode } from "./VideoStage";
@@ -48,7 +48,8 @@ export function CounterApp() {
   const [mode, setMode] = useState<DrawMode>(null);
   const [draft, setDraft] = useState<NormPoint[]>([]);
 
-  const config: SessionConfig = useMemo(() => ({ classes, anchor, line, zone }), [classes, anchor, line, zone]);
+  const [view, setView] = useState<CameraView>("street");
+  const config: SessionConfig = useMemo(() => ({ classes, anchor, line, zone, view }), [classes, anchor, line, zone, view]);
   const engine = useCounterEngine(videoRef, config);
   const { start, stop, setError } = engine;
 
@@ -118,6 +119,40 @@ export function CounterApp() {
       start("file");
     } catch (e) {
       setError(`Could not play that video: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [releaseSource, setError, start, stop]);
+
+  // Any video on the web: streamed through our /api/video proxy so the
+  // detector may read its pixels (see src/app/api/video/route.ts).
+  const [link, setLink] = useState("");
+  const [linkBusy, setLinkBusy] = useState(false);
+  const startLink = useCallback(async (raw: string) => {
+    const url = raw.trim();
+    if (!url) return;
+    stop();
+    releaseSource();
+    setLinkBusy(true);
+    const v = videoRef.current!;
+    const src = `/api/video?url=${encodeURIComponent(url)}`;
+    v.src = src;
+    v.loop = true;
+    try {
+      await v.play();
+      setHasSource(true);
+      setError(null);
+      start("link");
+    } catch {
+      // Ask the proxy why (it answers with a JSON error for bad links).
+      let msg = "Couldn't play that video. Use a direct link to an .mp4 or .webm file.";
+      try {
+        const r = await fetch(src, { headers: { Range: "bytes=0-0" } });
+        if (!r.ok) msg = ((await r.json()) as { error?: string }).error ?? msg;
+        else r.body?.cancel();
+      } catch { /* keep the generic message */ }
+      setHasSource(false);
+      setError(msg);
+    } finally {
+      setLinkBusy(false);
     }
   }, [releaseSource, setError, start, stop]);
 
@@ -271,6 +306,26 @@ export function CounterApp() {
               <button className="btn" style={{ flex: 1 }} onClick={() => fileInputRef.current?.click()}>Video file…</button>
               <input ref={fileInputRef} type="file" accept="video/*" hidden onChange={onFileChange} />
             </div>
+            <form
+              className={s.linkRow}
+              onSubmit={(e) => { e.preventDefault(); void startLink(link); }}
+            >
+              <label className={s.field}>
+                Video link
+                <input
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://…/clip.mp4"
+                  value={link}
+                  onChange={(e) => setLink(e.target.value)}
+                  aria-describedby="link-help"
+                />
+              </label>
+              <button type="submit" className="btn" disabled={!link.trim() || linkBusy}>
+                {linkBusy ? "Opening…" : "Open"}
+              </button>
+              <p id="link-help" className={s.note}>Any direct link to an .mp4 or .webm file. Web pages and YouTube links won&apos;t work.</p>
+            </form>
             <div className={s.row}>
               <label className={s.field}>
                 Camera
@@ -301,6 +356,15 @@ export function CounterApp() {
                 <select value={anchor} onChange={(e) => setAnchor(e.target.value as Anchor)}>
                   <option value="center">Box centre</option>
                   <option value="bottom">Box bottom (street cams)</option>
+                </select>
+              </label>
+            </div>
+            <div className={s.row}>
+              <label className={s.field}>
+                Camera view
+                <select value={view} onChange={(e) => setView(e.target.value as CameraView)}>
+                  <option value="street">Street level (angled or side view)</option>
+                  <option value="overhead">Overhead (drone, ceiling, looking down)</option>
                 </select>
               </label>
             </div>
