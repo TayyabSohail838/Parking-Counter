@@ -54,6 +54,10 @@ export interface CountRow {
   out: number;
   zone: number;
   visited: number;
+  /** on screen right now (no line or zone needed) */
+  now: number;
+  /** unique vehicles seen this session (confirmed tracks) */
+  seen: number;
 }
 
 export interface Counts {

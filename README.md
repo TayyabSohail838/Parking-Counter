@@ -32,6 +32,8 @@ camera / video ─► OpenCV.js ─► YOLO11 (ONNX Runtime Web) ─► NMS ─�
    - **Duplicate boxes:** duplicate removal (NMS) runs across look-alike classes (car/bus/truck, bicycle/motorcycle), so the model's habit of returning one vehicle as both "car" and "truck" no longer makes it two vehicles.
    - **By type:** the card shows crossings per type when a line is drawn, or unique vehicles per type that visited the zone when only a zone is drawn.
 5. The canvas draws boxes, trails, the line and the zone every screen refresh, and the dashboard updates live.
+   - **Boxes line up with the picture:** the stage shows the exact frame that was analysed, not the live video, because the live video runs about 100 ms ahead of the detections. Each frame is grabbed from the video once, and the small analysis copy is made from that grab. Edge can advance the video between two `drawImage` calls; we measured it, and it left boxes trailing moving cars.
+   - **Live numbers with nothing drawn:** the tiles show vehicles in view now, unique vehicles seen and the most common type. Inbound/Outbound appear when you draw a line; In zone and Visited appear when you draw a zone.
 
 Measured in Microsoft Edge on a laptop with Intel integrated graphics: the detector is ready in about 9 s on the first visit, then runs at **about 11–12 FPS on WebGPU**. The CPU fallback is about 360 ms per frame.
 

@@ -22,24 +22,46 @@ function cumulative(timeline: Bucket[], key: "in" | "out") {
 }
 
 export function KpiRow({ counts, timeline }: { counts: Counts | null; timeline: Bucket[] }) {
-  const t = counts?.total ?? { in: 0, out: 0, zone: 0, visited: 0 };
+  const t = counts?.total ?? { in: 0, out: 0, zone: 0, visited: 0, now: 0, seen: 0 };
   const line = counts?.hasLine ?? false;
   const zone = counts?.hasZone ?? false;
-  const cards = [
-    { label: "Inbound", value: t.in, on: line, color: IN_COLOR, spark: cumulative(timeline, "in"), note: "crossed toward IN" },
-    { label: "Outbound", value: t.out, on: line, color: OUT_COLOR, spark: cumulative(timeline, "out"), note: "crossed toward OUT" },
-    { label: "In zone now", value: t.zone, on: zone, color: "var(--cyan)", spark: [], note: "currently inside" },
-    { label: "Visited zone", value: t.visited, on: zone, color: "var(--accent-2)", spark: [], note: "unique objects" },
+  // Most common type seen so far, for the live view.
+  const top = Object.entries(counts?.classes ?? {}).sort((a, b) => b[1].seen - a[1].seen)[0];
+  type Card = { label: string; value: string; color: string; spark: number[]; note: string; small?: boolean };
+  const n = (v: number) => v.toLocaleString();
+  const live: Card[] = [
+    { label: "In view now", value: n(t.now), color: "var(--cyan)", spark: [], note: "vehicles on screen" },
+    { label: "Seen so far", value: n(t.seen), color: "var(--accent-2)", spark: [], note: "unique this session" },
+  ];
+  const extra: Card[] = [
+    top && top[1].seen > 0
+      ? { label: "Most common", value: top[0][0].toUpperCase() + top[0].slice(1), color: "var(--accent)", spark: [], note: `${n(top[1].seen)} of ${n(t.seen)} seen`, small: true }
+      : { label: "Most common", value: "–", color: "var(--accent)", spark: [], note: "waiting for vehicles" },
+    { label: "Count in / out", value: "Draw a line", color: "var(--muted)", spark: [], note: "or a zone, in Counting →", small: true },
+  ];
+  // Every tile always shows something live: counting tiles once a line / zone
+  // is drawn, live "on screen" numbers in the slots that aren't in use yet.
+  const cards: Card[] = [
+    ...(line
+      ? [
+          { label: "Inbound", value: n(t.in), color: IN_COLOR, spark: cumulative(timeline, "in"), note: "crossed toward IN" },
+          { label: "Outbound", value: n(t.out), color: OUT_COLOR, spark: cumulative(timeline, "out"), note: "crossed toward OUT" },
+        ]
+      : live),
+    ...(zone
+      ? [
+          { label: "In zone now", value: n(t.zone), color: "var(--cyan)", spark: [], note: "currently inside" },
+          { label: "Visited zone", value: n(t.visited), color: "var(--accent-2)", spark: [], note: "unique vehicles" },
+        ]
+      : line ? live : extra),
   ];
   return (
-    <div className={s.kpis}>
+    <div className={s.kpis} aria-live="polite">
       {cards.map((c) => (
         <div key={c.label} className={s.kpi}>
           <span className={s.kpiLabel}><i style={{ background: c.color }} />{c.label}</span>
-          <strong className={s.kpiValue}>
-            {c.on ? c.value.toLocaleString() : "–"}
-          </strong>
-          <span className={s.kpiNote}>{c.on ? c.note : c.label.includes("zone") ? "draw a zone" : "draw a line"}</span>
+          <strong className={`${s.kpiValue} ${c.small ? s.kpiValueText : ""}`}>{c.value}</strong>
+          <span className={s.kpiNote}>{c.note}</span>
           <Sparkline values={c.spark} color={c.color} />
         </div>
       ))}
@@ -50,10 +72,12 @@ export function KpiRow({ counts, timeline }: { counts: Counts | null; timeline: 
 export function VehicleMix({ counts }: { counts: Counts | null }) {
   // With a line: crossings per type. With only a zone: unique vehicles per
   // type that visited it (e.g. how many trucks used the loading bay).
+  // With nothing drawn: unique vehicles seen so far, per type (live).
   const byZone = !!counts && !counts.hasLine && counts.hasZone;
+  const bySeen = !counts || (!counts.hasLine && !counts.hasZone);
   const rows = Object.entries(counts?.classes ?? {}).map(([name, r]) => ({
     name,
-    total: byZone ? r.visited : r.in + r.out,
+    total: bySeen ? r.seen : byZone ? r.visited : r.in + r.out,
     zone: r.zone,
   }));
   const max = Math.max(1, ...rows.map((r) => r.total));
@@ -62,7 +86,7 @@ export function VehicleMix({ counts }: { counts: Counts | null }) {
     <div className={s.card}>
       <div className={s.cardHead}>
         <h2>By type</h2>
-        <span className={s.cardMeta}>{sum} {byZone ? "in zone (unique)" : "crossings"}</span>
+        <span className={s.cardMeta}>{sum} {bySeen ? "seen (unique)" : byZone ? "in zone (unique)" : "crossings"}</span>
       </div>
       <div className={s.mix}>
         {rows.map((r) => (

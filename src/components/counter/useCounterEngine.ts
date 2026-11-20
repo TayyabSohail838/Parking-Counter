@@ -34,6 +34,10 @@ export interface FrameResult {
   tracks: Track[];
   flash: Set<number>;
   inZone: Set<number>;
+  /** Full-resolution copy of the exact frame these boxes came from. The stage
+   *  shows this instead of the live video, so boxes always sit on the
+   *  vehicles (live video runs ~100 ms ahead of the detections). */
+  frame: HTMLCanvasElement | null;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -58,6 +62,8 @@ export function useCounterEngine(videoRef: RefObject<HTMLVideoElement | null>, c
   const runningRef = useRef(false);
   const historyRef = useRef<string | null>(null); // current history session id
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const frameBufs = useRef<(HTMLCanvasElement | undefined)[]>([]);
+  const frameFlip = useRef(0);
 
   // Load OpenCV.js, ONNX Runtime and the model as soon as the page opens, and
   // again when the user picks another model. Detectors are page-wide
@@ -119,12 +125,20 @@ export function useCounterEngine(videoRef: RefObject<HTMLVideoElement | null>, c
       }
 
       const t0 = performance.now();
+      // Grab the video ONCE, at full size, for display (see FrameResult.frame),
+      // then make the small analysis copy from that grab - not from the video
+      // again: the video can advance between two drawImage calls (measured),
+      // which left boxes trailing moving vehicles. Two display canvases
+      // alternate so the one on screen is never overwritten mid-display.
+      const frame = (frameBufs.current[frameFlip.current ^= 1] ??= document.createElement("canvas"));
+      frame.width = video.videoWidth;
+      frame.height = video.videoHeight;
+      frame.getContext("2d", { willReadFrequently: true })!.drawImage(video, 0, 0);
       const canvas = (canvasRef.current ??= document.createElement("canvas"));
       const scale = Math.min(1, ANALYSE_WIDTH / video.videoWidth);
       canvas.width = Math.round(video.videoWidth * scale);
       canvas.height = Math.round(video.videoHeight * scale);
-      canvas.getContext("2d", { willReadFrequently: true })!.drawImage(video, 0, 0, canvas.width, canvas.height);
-
+      canvas.getContext("2d", { willReadFrequently: true })!.drawImage(frame, 0, 0, canvas.width, canvas.height);
       try {
         // Low floor on purpose: weak detections only extend tracks (Tracker.update).
         const dets = await detector.detect(canvas, session.detectIds, LOW_CONF);
@@ -136,6 +150,7 @@ export function useCounterEngine(videoRef: RefObject<HTMLVideoElement | null>, c
           tracks: [...tracks],
           flash: new Set(session.line?.flash.keys() ?? []),
           inZone: new Set(session.zone?.inside ?? []),
+          frame,
         };
         setCounts(session.counts());
 

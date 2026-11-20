@@ -89,7 +89,10 @@ export function VideoStage({ videoRef, hasSource, resultRef, zoneCount, line, zo
       const W = canvas.width;
       const H = canvas.height;
       const lw = Math.max(2, W / 420);
-      ctx.drawImage(video, 0, 0, W, H);
+      // Show the frame the current boxes came from, so they line up exactly;
+      // fall back to the live video before the first result (or after a stop).
+      const snap = resultRef.current?.frame;
+      ctx.drawImage(snap && snap.width === W ? snap : video, 0, 0, W, H);
 
       // Zone
       const z = mode === "zone" ? draft : zone;
@@ -168,10 +171,12 @@ export function VideoStage({ videoRef, hasSource, resultRef, zoneCount, line, zo
           ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
           label(`#${t.id} ${name} ${Math.round(t.conf * 100)}%${result.inZone.has(t.id) ? " · zone" : ""}`,
             x1, y1 - 3, color, W);
-          const [ax, ay] = t.anchor();
+          // counting point, moved along with the box
+          const ax = (x1 + x2) / 2;
+          const ay = t.anchor()[1] === (t.box[1] + t.box[3]) / 2 ? (y1 + y2) / 2 : y2;
           ctx.fillStyle = color;
           ctx.beginPath();
-          ctx.arc(ax * k, ay * k, lw * 2, 0, Math.PI * 2);
+          ctx.arc(ax, ay, lw * 2, 0, Math.PI * 2);
           ctx.fill();
         }
       }

@@ -218,6 +218,8 @@ export class LineCounter {
 }
 
 const ZONE_DWELL_FRAMES = 3;
+/** A track counts toward "seen so far" once it has been detected this many times. */
+const SEEN_HITS = 3;
 /** A box counts as inside when at least this share of it overlaps the zone. */
 const ZONE_OVERLAP = 0.4;
 const GRID = 5; // 5x5 sample points per box to estimate the overlap
@@ -353,29 +355,45 @@ export class CountingSession {
     }
     const tracks = this.tracker.update(dets);
     const events = this.line ? this.line.update(tracks) : [];
-    this.zone?.update(this.tracker.recent());
+    const recent = this.tracker.recent();
+    this.zone?.update(recent);
+    // Live numbers that need no line or zone: what's on screen now, and every
+    // vehicle seen so far (its latest type wins, so a car/truck flip isn't two).
+    this.now = {};
+    for (const t of recent) {
+      this.now[t.cls] = (this.now[t.cls] ?? 0) + 1;
+      if (t.hits >= SEEN_HITS) this.seen.set(t.id, t.cls);
+    }
     return { tracks, events };
   }
+
+  private now: CountMap = {};
+  private seen = new Map<number, number>(); // track id -> class
 
   reset() {
     this.line?.reset();
     this.zone?.reset();
+    this.seen.clear();
   }
 
   counts(): Counts {
     const classes: Record<string, CountRow> = {};
+    const seenBy: CountMap = {};
+    for (const c of this.seen.values()) seenBy[c] = (seenBy[c] ?? 0) + 1;
     for (const c of this.classIds) {
       classes[CLASS_NAMES[c]] = {
         in: this.line?.inCount[c] ?? 0,
         out: this.line?.outCount[c] ?? 0,
         zone: this.zone?.current[c] ?? 0,
         visited: this.zone?.visitors.get(c)?.size ?? 0,
+        now: this.now[c] ?? 0,
+        seen: seenBy[c] ?? 0,
       };
     }
     const rows = Object.values(classes);
     const sum = (k: keyof CountRow) => rows.reduce((s, r) => s + r[k], 0);
     return {
-      total: { in: sum("in"), out: sum("out"), zone: sum("zone"), visited: sum("visited") },
+      total: { in: sum("in"), out: sum("out"), zone: sum("zone"), visited: sum("visited"), now: sum("now"), seen: sum("seen") },
       classes,
       hasLine: !!this.config.line,
       hasZone: !!this.config.zone,

@@ -282,6 +282,11 @@
   font-variant-numeric: tabular-nums;
   line-height: 1.15;
 }
+/* words instead of a number ("Car", "Draw a line") */
+.kpiValueText {
+  font-size: 26px;
+  line-height: 1.6;
+}
 .kpiNote {
   color: var(--muted);
   font-size: 12px;
