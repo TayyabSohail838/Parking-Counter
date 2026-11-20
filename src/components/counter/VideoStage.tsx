@@ -83,6 +83,8 @@ export function VideoStage({ videoRef, hasSource, resultRef, zoneCount, line, zo
       if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
+        // CSS uses this to fit the whole video on screen (see .stage canvas)
+        canvas.style.setProperty("--ar", String(video.videoWidth / video.videoHeight));
       }
       const W = canvas.width;
       const H = canvas.height;
@@ -106,7 +108,9 @@ export function VideoStage({ videoRef, hasSource, resultRef, zoneCount, line, zo
         ctx.setLineDash([]);
         if (z === zone && zoneCount !== null) {
           const top = z.reduce((a, p) => (p[1] < a[1] ? p : a));
-          label(`ZONE · ${zoneCount} inside`, top[0] * W, top[1] * H - 6, ZONE, W);
+          // Same frame as the boxes (React state would lag a frame behind).
+          const inside = resultRef.current?.inZone.size ?? zoneCount;
+          label(`ZONE · ${inside} inside`, top[0] * W, top[1] * H - 6, ZONE, W);
         }
       }
 

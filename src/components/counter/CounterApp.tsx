@@ -5,6 +5,7 @@ import { LogoMark } from "@/components/brand/LogoMark";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { preload } from "react-dom";
 import type { SessionConfig } from "@/lib/vision/tracker";
+import type { ModelSize } from "@/lib/vision/detector";
 import type { Anchor, CameraView, ClassGroup, NormPoint } from "@/lib/vision/types";
 import { EventLog, KpiRow, Timeline, VehicleMix } from "./Dashboard";
 import { useCounterEngine } from "./useCounterEngine";
@@ -50,7 +51,8 @@ export function CounterApp() {
 
   const [view, setView] = useState<CameraView>("street");
   const config: SessionConfig = useMemo(() => ({ classes, anchor, line, zone, view }), [classes, anchor, line, zone, view]);
-  const engine = useCounterEngine(videoRef, config);
+  const [model, setModel] = useState<ModelSize>("fast");
+  const engine = useCounterEngine(videoRef, config, model);
   const { start, stop, setError } = engine;
 
   // ---------- video sources ----------
@@ -365,6 +367,15 @@ export function CounterApp() {
                 <select value={view} onChange={(e) => setView(e.target.value as CameraView)}>
                   <option value="street">Street level (angled or side view)</option>
                   <option value="overhead">Overhead (drone, ceiling, looking down)</option>
+                </select>
+              </label>
+            </div>
+            <div className={s.row}>
+              <label className={s.field}>
+                Detection model
+                <select value={model} onChange={(e) => setModel(e.target.value as ModelSize)}>
+                  <option value="fast">Fast · YOLO11n (10 MB)</option>
+                  <option value="accurate">Accurate · YOLO11s (36 MB, better at bus / truck / bike)</option>
                 </select>
               </label>
             </div>

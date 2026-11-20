@@ -84,7 +84,10 @@ export class Tracker {
     private anchor: Anchor = "bottom",
     private iouThreshold = 0.25,
     private maxMissed = 30, // forget a track after this many frames unseen
-    private minHits = 3, // only trust a track after this many frames
+    // Only trust a track after this many frames. 2 (not 3): new tracks need a
+    // confident detection anyway, and at 5-10 FPS each extra frame is 0.1-0.2 s
+    // of a vehicle on screen without a box.
+    private minHits = 2,
   ) {}
 
   /** How well a track (at its predicted position) matches a detection: 0 = no match. */
@@ -95,11 +98,17 @@ export class Tracker {
     if (o >= this.iouThreshold) return o;
     // Low frame rates make objects jump further than their own size between
     // frames, so boxes stop overlapping. Fall back to centre distance.
+    // Kept strict so two vehicles side by side can't swap IDs when one of
+    // them is missed for a frame: close (under 0.6 of its size) AND similar
+    // in size (area within 2.5x).
     const pcx = (p[0] + p[2]) / 2, pcy = (p[1] + p[3]) / 2;
     const dcx = (d.box[0] + d.box[2]) / 2, dcy = (d.box[1] + d.box[3]) / 2;
     const size = Math.max(p[2] - p[0], p[3] - p[1], d.box[2] - d.box[0], d.box[3] - d.box[1]);
+    const ratio = ((p[2] - p[0]) * (p[3] - p[1])) / Math.max(1, (d.box[2] - d.box[0]) * (d.box[3] - d.box[1]));
+    if (ratio > 2.5 || ratio < 0.4) return 0;
+    const reach = size * 0.6;
     const dist = Math.hypot(pcx - dcx, pcy - dcy);
-    return dist < size ? this.iouThreshold * (1 - dist / size) * 0.99 : 0;
+    return dist < reach ? this.iouThreshold * (1 - dist / reach) * 0.99 : 0;
   }
 
   /** Greedy best-first matching of `dets` to tracks not yet in `usedT`. Returns matched detection indexes. */
@@ -149,6 +158,12 @@ export class Tracker {
     // ID (instead of coming back as a "new" vehicle).
     this.tracks = this.tracks.filter((t) => t.missed <= (t.stationary() ? this.maxMissed * 5 : this.maxMissed));
     return this.tracks.filter((t) => t.hits >= this.minHits && t.missed === 0);
+  }
+
+  /** Confirmed tracks seen in the last `grace` frames - for zone occupancy,
+   *  so a vehicle missed for a frame or two doesn't blink out of the count. */
+  recent(grace = 2): Track[] {
+    return this.tracks.filter((t) => t.hits >= this.minHits && t.missed <= grace);
   }
 }
 
@@ -202,7 +217,31 @@ export class LineCounter {
   }
 }
 
-const ZONE_DWELL_FRAMES = 5;
+const ZONE_DWELL_FRAMES = 3;
+/** A box counts as inside when at least this share of it overlaps the zone. */
+const ZONE_OVERLAP = 0.4;
+const GRID = 5; // 5x5 sample points per box to estimate the overlap
+
+/** Ray-casting point-in-polygon (plain JS: cheap enough for 25 samples per box). */
+function inPoly(poly: PxPoint[], x: number, y: number) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** Share of the box (0-1) that lies inside the polygon, from a GRIDxGRID sample. */
+function overlapShare(poly: PxPoint[], [x1, y1, x2, y2]: Box) {
+  let hits = 0;
+  for (let i = 0; i < GRID; i++) {
+    for (let j = 0; j < GRID; j++) {
+      if (inPoly(poly, x1 + ((i + 0.5) / GRID) * (x2 - x1), y1 + ((j + 0.5) / GRID) * (y2 - y1))) hits++;
+    }
+  }
+  return hits / (GRID * GRID);
+}
 
 export class ZoneCounter {
   current: CountMap = {};
@@ -229,8 +268,11 @@ export class ZoneCounter {
     this.inside = new Set();
     const dwell = new Map<number, number>();
     for (const t of tracks) {
+      // Inside if its counting point is inside (OpenCV pointPolygonTest) or a
+      // good part of the vehicle overlaps the zone - a car half in the zone
+      // is "in the zone" to anyone watching, even if its centre isn't yet.
       const [x, y] = t.anchor();
-      if (!this.contains(this.polygon, x, y)) continue;
+      if (!this.contains(this.polygon, x, y) && overlapShare(this.polygon, t.box) < ZONE_OVERLAP) continue;
       this.current[t.cls] = (this.current[t.cls] ?? 0) + 1;
       this.inside.add(t.id);
       // Only a vehicle that stays inside for a moment counts as a visitor,
@@ -311,7 +353,7 @@ export class CountingSession {
     }
     const tracks = this.tracker.update(dets);
     const events = this.line ? this.line.update(tracks) : [];
-    this.zone?.update(tracks);
+    this.zone?.update(this.tracker.recent());
     return { tracks, events };
   }
 

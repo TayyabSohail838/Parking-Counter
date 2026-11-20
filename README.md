@@ -27,7 +27,10 @@ camera / video ─► OpenCV.js ─► YOLO11 (ONNX Runtime Web) ─► NMS ─�
    - **Two-stage matching (the ByteTrack idea):** detections down to 20% confidence can keep an existing track alive, but only those of 40% or more start a new one. Dark or partly hidden vehicles therefore keep their ID instead of flickering into "new" vehicles.
    - **Class switches:** car, bus and truck may swap on the same vehicle without breaking its track. The label shown is the one the vehicle was seen as most often.
    - **Parked vehicles:** a track that isn't moving is remembered 5× longer.
-   - **Zone visitors:** a vehicle counts as a zone visitor only after it has been inside for 5 frames in a row.
+   - **In the zone:** a vehicle is in the zone when its counting point is inside **or** at least 40% of its box overlaps the zone, so a car half inside counts. A vehicle missed for 1–2 frames stays counted.
+   - **Zone visitors:** a vehicle counts as a zone visitor after 3 frames in a row inside.
+   - **Duplicate boxes:** duplicate removal (NMS) runs across look-alike classes (car/bus/truck, bicycle/motorcycle), so the model's habit of returning one vehicle as both "car" and "truck" no longer makes it two vehicles.
+   - **By type:** the card shows crossings per type when a line is drawn, or unique vehicles per type that visited the zone when only a zone is drawn.
 5. The canvas draws boxes, trails, the line and the zone every screen refresh, and the dashboard updates live.
 
 Measured in Microsoft Edge on a laptop with Intel integrated graphics: the detector is ready in about 9 s on the first visit, then runs at **about 11–12 FPS on WebGPU**. The CPU fallback is about 360 ms per frame.
@@ -47,6 +50,32 @@ Measured in Microsoft Edge on a laptop with Intel integrated graphics: the detec
 The YOLO11 model learned what cars look like from the side and at an angle. **Seen from directly above (drone, ceiling or high-pole cameras), it labels cars as "cell phone"**: measured at 76–92% confidence on a top-down parking clip, where "car" scored about 0.
 
 Set **Camera view → Overhead** for these cameras. The counter then reads those look-alikes ("cell phone", "suitcase") as cars and merges overlapping duplicates. On the Intel sample [car-detection.mp4](https://github.com/intel-iot-devkit/sample-videos) it counts all 4 cars in the correct directions; in street mode it finds 0. Keep **Street level** for normal cameras, so real phones are never counted.
+
+### Detection model: Fast or Accurate
+
+| | Fast · YOLO11n | Accurate · YOLO11s |
+|---|---|---|
+| Download | 10 MB | 36 MB |
+| Speed (Edge, laptop iGPU, WebGPU) | ~8–9 FPS | ~5 FPS |
+| Lorry, 27 sampled frames: right type / wrong type | 5 / 2 | 23 / 0 |
+| Cyclists, 21 frames | 11 / 0 | 17 / 0 |
+| Hanoi motorbikes, in the app | 49 motorcycles, 25 cars, 5 bicycles | 58 motorcycles, 15 cars, 1 bicycle |
+
+Fast is the default. Pick **Accurate** when vehicle *types* matter (bus vs truck, bicycle vs motorcycle). The second model is only downloaded when chosen.
+
+### Tested on 14 clips
+
+The clips, their direct links, licences and the true answers are listed in [docs/TEST_VIDEOS.md](docs/TEST_VIDEOS.md).
+
+- **Zone counting:** 4 of 5 clips are exact (max in zone and unique visitors). The miss is a portrait phone clip of tiny, dark parked cars, where about half are found.
+- **Types:**
+  - Recognised correctly: buses (including London double-deckers), trucks, motorcycles and bicycles.
+  - A rear view of one lorry is called a bus by Fast; it is found as a truck by Accurate.
+
+Known limits:
+- A bus filling the whole frame right next to the camera can be split into several IDs, so it is counted more than once.
+- Silhouettes in the dark aren't detected.
+- With a moving camera, unique counts are rough.
 
 ## Project structure
 

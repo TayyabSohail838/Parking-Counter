@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { endSession, recordEvents, startSession } from "@/lib/history";
-import { getDetector, removeProgressListener, type Detector, type LoadProgress } from "@/lib/vision/detector";
+import { getDetector, removeProgressListener, type Detector, type LoadProgress, type ModelSize } from "@/lib/vision/detector";
 import { CountingSession, LOW_CONF, type SessionConfig, type Track } from "@/lib/vision/tracker";
 import { CLASS_NAMES, type Backend, type Counts } from "@/lib/vision/types";
 
@@ -38,8 +38,12 @@ export interface FrameResult {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export function useCounterEngine(videoRef: RefObject<HTMLVideoElement | null>, config: SessionConfig) {
-  const [status, setStatus] = useState<EngineStatus>("loading");
+export function useCounterEngine(videoRef: RefObject<HTMLVideoElement | null>, config: SessionConfig, model: ModelSize = "fast") {
+  const [rawStatus, setStatus] = useState<EngineStatus>("loading");
+  // Which model the current detector is - while it differs from `model`, a new
+  // one is loading (derived, so no state is set synchronously in an effect).
+  const [loadedModel, setLoadedModel] = useState<ModelSize | null>(null);
+  const status: EngineStatus = rawStatus !== "error" && loadedModel !== model ? "loading" : rawStatus;
   const [progress, setProgress] = useState<LoadProgress>({ stage: "opencv" });
   const [error, setError] = useState<string | null>(null);
   const [backend, setBackend] = useState<Backend | null>(null);
@@ -55,17 +59,21 @@ export function useCounterEngine(videoRef: RefObject<HTMLVideoElement | null>, c
   const historyRef = useRef<string | null>(null); // current history session id
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Load OpenCV.js, ONNX Runtime and the model as soon as the page opens.
-  // The detector is a page-wide singleton, so it is never disposed here.
+  // Load OpenCV.js, ONNX Runtime and the model as soon as the page opens, and
+  // again when the user picks another model. Detectors are page-wide
+  // singletons (one per model), so they are never disposed here. While a new
+  // model loads the counting loop just waits; it resumes on the new model.
   useEffect(() => {
     let cancelled = false;
     const onProgress = (p: LoadProgress) => !cancelled && setProgress(p);
-    getDetector(onProgress)
+    detectorRef.current = null;
+    getDetector(onProgress, model)
       .then((d) => {
         if (cancelled) return;
         detectorRef.current = d;
         setBackend(d.backend);
-        setStatus((s) => (s === "loading" ? "ready" : s));
+        setLoadedModel(model);
+        setStatus((s) => (s === "loading" ? (runningRef.current ? "running" : "ready") : s));
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -75,8 +83,12 @@ export function useCounterEngine(videoRef: RefObject<HTMLVideoElement | null>, c
     return () => {
       cancelled = true;
       removeProgressListener(onProgress);
-      runningRef.current = false;
     };
+  }, [model]);
+
+  // Stop the counting loop when the page goes away.
+  useEffect(() => () => {
+    runningRef.current = false;
   }, []);
 
   const resetStats = useCallback(() => {

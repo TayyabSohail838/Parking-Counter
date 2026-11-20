@@ -48,9 +48,12 @@ export function KpiRow({ counts, timeline }: { counts: Counts | null; timeline: 
 }
 
 export function VehicleMix({ counts }: { counts: Counts | null }) {
+  // With a line: crossings per type. With only a zone: unique vehicles per
+  // type that visited it (e.g. how many trucks used the loading bay).
+  const byZone = !!counts && !counts.hasLine && counts.hasZone;
   const rows = Object.entries(counts?.classes ?? {}).map(([name, r]) => ({
     name,
-    total: r.in + r.out,
+    total: byZone ? r.visited : r.in + r.out,
     zone: r.zone,
   }));
   const max = Math.max(1, ...rows.map((r) => r.total));
@@ -59,7 +62,7 @@ export function VehicleMix({ counts }: { counts: Counts | null }) {
     <div className={s.card}>
       <div className={s.cardHead}>
         <h2>By type</h2>
-        <span className={s.cardMeta}>{sum} crossings</span>
+        <span className={s.cardMeta}>{sum} {byZone ? "in zone (unique)" : "crossings"}</span>
       </div>
       <div className={s.mix}>
         {rows.map((r) => (

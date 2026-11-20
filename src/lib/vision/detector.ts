@@ -51,37 +51,60 @@ export function iou(a: Box, b: Box) {
   return union > 0 ? inter / union : 0;
 }
 
-/** Non-maximum suppression, done separately per class. */
+/**
+ * Classes the model confuses on the same object compete in NMS: one vehicle
+ * often comes back as both "car" (0.84) and "truck" (0.23) with an identical
+ * box, and per-class NMS kept both - one vehicle became two. People stay
+ * separate (a rider and their motorcycle are both real).
+ */
+const NMS_GROUP: Record<number, number> = { 2: 2, 5: 2, 7: 2, 1: 1, 3: 1 };
+const nmsGroup = (c: number) => NMS_GROUP[c] ?? c;
+
+/** Non-maximum suppression across look-alike classes (car/bus/truck, bicycle/motorcycle). */
 function nms(dets: Detection[], threshold: number) {
   dets.sort((a, b) => b.conf - a.conf);
   const kept: Detection[] = [];
   for (const d of dets) {
-    if (kept.every((k) => k.cls !== d.cls || iou(k.box, d.box) < threshold)) kept.push(d);
+    if (kept.every((k) => nmsGroup(k.cls) !== nmsGroup(d.cls) || iou(k.box, d.box) < threshold)) kept.push(d);
   }
   return kept;
 }
 
-let shared: Promise<Detector> | null = null;
+/**
+ * "fast": YOLO11n, 10 MB - the default, ~2.7x quicker.
+ * "accurate": YOLO11s, 36 MB - measured on 9 test clips it finds the right
+ * vehicle type far more often (e.g. a lorry: 23 vs 5 frames, bicycles 17 vs 11).
+ */
+export type ModelSize = "fast" | "accurate";
+const MODEL_URLS: Record<ModelSize, string> = {
+  fast: MODEL_URL,
+  accurate: "/models/yolo11s.onnx",
+};
+
+const shared = new Map<ModelSize, Promise<Detector>>();
 let progressListeners: ((p: LoadProgress) => void)[] = [];
 
 /**
- * The one detector for the whole page. Creating two ONNX Runtime sessions at
- * the same time can hang the runtime (React runs effects twice in development),
- * so every caller shares the same instance, and it is kept across navigations.
+ * One detector per model for the whole page. Creating two ONNX Runtime
+ * sessions at the same time can hang the runtime (React runs effects twice in
+ * development), so every caller shares the same instance, kept across
+ * navigations; switching back to a model already loaded is instant.
  */
-export function getDetector(onProgress?: (p: LoadProgress) => void): Promise<Detector> {
+export function getDetector(onProgress?: (p: LoadProgress) => void, model: ModelSize = "fast"): Promise<Detector> {
   if (onProgress) progressListeners.push(onProgress);
-  if (!shared) {
-    shared = Detector.create((p) => progressListeners.forEach((l) => l(p)));
-    shared.then(
+  let p = shared.get(model);
+  if (!p) {
+    p = Detector.create((x) => progressListeners.forEach((l) => l(x)), MODEL_URLS[model]);
+    shared.set(model, p);
+    p.then(
       () => (progressListeners = []),
       () => {
-        shared = null; // allow a retry after a failure
+        shared.delete(model); // allow a retry after a failure
         progressListeners = [];
       },
     );
   }
-  return shared;
+  return p;
 }
 
 export function removeProgressListener(onProgress: (p: LoadProgress) => void) {
@@ -96,12 +119,12 @@ export class Detector {
     readonly backend: Backend,
   ) {}
 
-  static async create(onProgress: (p: LoadProgress) => void = () => {}): Promise<Detector> {
+  static async create(onProgress: (p: LoadProgress) => void = () => {}, modelUrl = MODEL_URL): Promise<Detector> {
     onProgress({ stage: "opencv" });
     const cvP = loadOpenCV();
     onProgress({ stage: "runtime" });
     const ortP = loadOrt();
-    const modelP = fetchWithProgress(MODEL_URL, (fraction) => onProgress({ stage: "model", fraction }));
+    const modelP = fetchWithProgress(modelUrl, (fraction) => onProgress({ stage: "model", fraction }));
     const [cv, ort, model] = await Promise.all([cvP, ortP, modelP]);
 
     onProgress({ stage: "warmup" });
