@@ -38,6 +38,10 @@ export function CounterApp() {
   const streamRef = useRef<MediaStream | null>(null);
   const fileUrlRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Every camera / file / link request takes a ticket; after an await, a
+  // request that is no longer the latest does nothing (fast switching used to
+  // let an older video finish loading after a newer one and restart or error).
+  const ticketRef = useRef(0);
 
   const [hasSource, setHasSource] = useState(false);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
@@ -71,12 +75,14 @@ export function CounterApp() {
   }, []);
 
   const stopAll = useCallback(() => {
+    ticketRef.current++;
     stop();
     releaseSource();
     setHasSource(false);
   }, [stop, releaseSource]);
 
   const startCamera = useCallback(async (deviceId?: string) => {
+    const ticket = ++ticketRef.current;
     stop();
     releaseSource();
     const v = videoRef.current!;
@@ -90,10 +96,15 @@ export function CounterApp() {
         audio: false,
         video: deviceId ? { ...size, deviceId: { exact: deviceId } } : { ...size, facingMode: "environment" },
       });
+      if (ticket !== ticketRef.current) {
+        stream.getTracks().forEach((t) => t.stop()); // a newer source was chosen meanwhile
+        return;
+      }
       streamRef.current = stream;
       v.srcObject = stream;
       v.loop = false;
       await v.play();
+      if (ticket !== ticketRef.current) return;
       const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
       setCameras(devices);
       setCameraId(stream.getVideoTracks()[0].getSettings().deviceId ?? "");
@@ -101,12 +112,14 @@ export function CounterApp() {
       setError(null);
       start("camera");
     } catch (e) {
+      if (ticket !== ticketRef.current) return;
       setHasSource(false);
       setError(cameraError(e));
     }
   }, [releaseSource, setError, start, stop]);
 
   const startFile = useCallback(async (file: File) => {
+    const ticket = ++ticketRef.current;
     stop();
     releaseSource();
     const v = videoRef.current!;
@@ -116,10 +129,13 @@ export function CounterApp() {
     v.loop = true;
     try {
       await v.play();
+      if (ticket !== ticketRef.current) return;
       setHasSource(true);
       setError(null);
       start("file");
     } catch (e) {
+      if (ticket !== ticketRef.current) return; // replaced by a newer choice - not an error
+      setHasSource(false);
       setError(`Could not play that video: ${e instanceof Error ? e.message : String(e)}`);
     }
   }, [releaseSource, setError, start, stop]);
@@ -131,6 +147,7 @@ export function CounterApp() {
   const startLink = useCallback(async (raw: string) => {
     const url = raw.trim();
     if (!url) return;
+    const ticket = ++ticketRef.current;
     stop();
     releaseSource();
     setLinkBusy(true);
@@ -140,10 +157,12 @@ export function CounterApp() {
     v.loop = true;
     try {
       await v.play();
+      if (ticket !== ticketRef.current) return;
       setHasSource(true);
       setError(null);
       start("link");
     } catch {
+      if (ticket !== ticketRef.current) return;
       // Ask the proxy why (it answers with a JSON error for bad links).
       let msg = "Couldn't play that video. Use a direct link to an .mp4 or .webm file.";
       try {

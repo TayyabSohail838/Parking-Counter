@@ -147,11 +147,24 @@ export class Detector {
     return detector;
   }
 
+  /** The previous detection (finished or not) - detections are run one at a time. */
+  private queue: Promise<unknown> = Promise.resolve();
+
   /**
    * Detect objects in a frame drawn on a canvas.
    * Returns boxes in the canvas's pixel coordinates.
+   *
+   * Calls are queued: an ONNX Runtime session must not run two inferences at
+   * once (on WebGPU that can deadlock), and switching videos quickly could
+   * otherwise start a new frame while the last one is still on the GPU.
    */
-  async detect(source: HTMLCanvasElement, classes: number[], conf = 0.35, nmsIou = 0.45): Promise<Detection[]> {
+  detect(source: HTMLCanvasElement, classes: number[], conf = 0.35, nmsIou = 0.45): Promise<Detection[]> {
+    const run = this.queue.then(() => this.detectNow(source, classes, conf, nmsIou));
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async detectNow(source: HTMLCanvasElement, classes: number[], conf: number, nmsIou: number): Promise<Detection[]> {
     const { cv, ort, session } = this;
     const w = source.width;
     const h = source.height;

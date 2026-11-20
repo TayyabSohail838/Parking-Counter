@@ -374,6 +374,9 @@ export class CountingSession {
     this.line?.reset();
     this.zone?.reset();
     this.seen.clear();
+    this.now = {};
+    // forget the previous video's vehicles too (stale tracks / IDs)
+    this.tracker = new Tracker(this.config.anchor);
   }
 
   counts(): Counts {

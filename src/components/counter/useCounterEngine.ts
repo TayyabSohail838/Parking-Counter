@@ -112,9 +112,16 @@ export function useCounterEngine(videoRef: RefObject<HTMLVideoElement | null>, c
     resetStats();
   }, [config, resetStats]);
 
-  const loop = useCallback(async () => {
+  // Each start gets a new run id. A loop only keeps going - and only writes
+  // results - while its id is current, so a stop / new video can never leave
+  // two loops running on one model, or let an old loop that was mid-detection
+  // paint its stale frame after the switch (which froze the picture).
+  const runIdRef = useRef(0);
+
+  const loop = useCallback(async (runId: number) => {
     let fps = 0;
-    while (runningRef.current) {
+    const current = () => runningRef.current && runIdRef.current === runId;
+    while (current()) {
       const video = videoRef.current;
       const detector = detectorRef.current;
       const session = sessionRef.current;
@@ -142,6 +149,7 @@ export function useCounterEngine(videoRef: RefObject<HTMLVideoElement | null>, c
       try {
         // Low floor on purpose: weak detections only extend tracks (Tracker.update).
         const dets = await detector.detect(canvas, session.detectIds, LOW_CONF);
+        if (!current()) break; // stopped or a new source started while detecting
         if (session !== sessionRef.current) continue; // settings changed mid-frame
         const { tracks, events: newEvents } = session.process(dets, canvas.width, canvas.height);
         resultRef.current = {
@@ -178,10 +186,12 @@ export function useCounterEngine(videoRef: RefObject<HTMLVideoElement | null>, c
           });
         }
       } catch (e) {
+        if (!current()) break;
         setError(`Detection failed: ${e instanceof Error ? e.message : String(e)}`);
         await sleep(500);
       }
 
+      if (!current()) break;
       const ms = performance.now() - t0;
       fps = fps ? fps * 0.85 + (1000 / ms) * 0.15 : 1000 / ms;
       setStats({ fps: Math.round(fps * 10) / 10, ms: Math.round(ms) });
@@ -190,14 +200,19 @@ export function useCounterEngine(videoRef: RefObject<HTMLVideoElement | null>, c
   }, [videoRef]);
 
   const start = useCallback((source: "camera" | "file" | "link" = "camera") => {
-    if (runningRef.current) return;
+    const runId = ++runIdRef.current; // ends any loop still finishing a frame
     runningRef.current = true;
+    // A new camera / video starts from zero (the line and zone stay).
+    sessionRef.current?.reset();
+    if (sessionRef.current) setCounts(sessionRef.current.counts());
+    resetStats();
     historyRef.current = startSession(source);
     setStatus((s) => (s === "error" ? s : detectorRef.current ? "running" : "loading"));
-    void loop();
-  }, [loop]);
+    void loop(runId);
+  }, [loop, resetStats]);
 
   const stop = useCallback(() => {
+    runIdRef.current++; // the running loop exits and can no longer write results
     runningRef.current = false;
     if (historyRef.current) endSession(historyRef.current);
     historyRef.current = null;
