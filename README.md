@@ -111,8 +111,18 @@ The landing page can open with a full-screen video that plays as you scroll, wit
    pip install opencv-python numpy
    python tools/make_scroll_sequence.py path/to/video.mp4            # 120 frames by default
    python tools/make_scroll_sequence.py clip.mp4 --frames 160 --quality 70
+   # what this site uses: 4K source, cleaned up, plus a portrait set for phones
+   python tools/make_scroll_sequence.py clip.mp4 --last 10 --frames 150 --max-side 1920 --quality 82 --enhance --mobile 1280
    ```
    This writes `public/scroll/frame_000.webp …` plus `public/scroll/manifest.json` (about 5–15 MB).
+   - **`--enhance`:** cleans up dark footage in four steps: denoise first, then CLAHE contrast, a gamma lift for the shadows, and an unsharp mask.
+   - **`--mobile 1280`:** adds a 720×1280 portrait set in `public/scroll/m/`, cut from the full-resolution source. Phones and portrait tablets load it: 6.7 MB instead of 16 MB, and sharper.
+
+   **How the page plays it:**
+   - **Load order:** frames load coarse to fine (every 16th first), and each is decoded off the main thread.
+   - **Drawing:** happens only on scroll or resize, on a canvas no larger than the frames.
+   - **Frosted glass:** cards over the video only use it on desktop.
+   - **Result:** in testing, a steady 60 FPS while scrolling, from a 320 px phone to a 2560 px monitor.
 3. Commit `public/scroll/` and deploy. The page detects the sequence at build time and shows the scroll story as the hero. The tablet dashboard then follows it as the next section. Delete the folder to go back to the tablet hero.
 
 Portrait (phone) videos are shown whole over a blurred copy of themselves on wide screens, and full-bleed on phones.

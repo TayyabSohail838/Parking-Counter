@@ -11,6 +11,8 @@ interface Manifest {
   width: number;
   height: number;
   detections: Det[][];
+  /** Optional portrait set for phones in /scroll/m/: a centre slice [x0, x1] (0-1) of the frame. */
+  mobile?: { width: number; height: number; crop: [number, number] };
 }
 
 const VEHICLES = new Set(["car", "truck", "bus", "motorcycle", "bicycle"]);
@@ -55,33 +57,65 @@ export function ScrollStory() {
     if (!manifest) return;
     const section = sectionRef.current!;
     const canvas = canvasRef.current!;
-    const ctx = canvas.getContext("2d")!;
+    const ctx = canvas.getContext("2d", { alpha: false })!;
     const images: (HTMLImageElement | null)[] = new Array(manifest.count).fill(null);
     let raf = 0;
+    let pending = false;
     let lastKey = "";
     let cancelled = false;
 
-    // Load the first frame immediately, then the rest in order.
-    let done = 0;
-    const load = (i: number) =>
-      new Promise<void>((resolve) => {
-        const img = new Image();
-        img.decoding = "async";
-        img.src = `/scroll/frame_${String(i).padStart(3, "0")}.webp`;
-        img.onload = () => {
-          images[i] = img;
-          done += 1;
-          if (!cancelled) setLoaded(done);
-          lastKey = ""; // redraw: a better frame may now be available
-          resolve();
-        };
-        img.onerror = () => resolve();
+    // Phones and portrait screens get the portrait set (a 9:16 slice cut from
+    // the 4K source): fewer bytes, and sharp instead of a cropped landscape frame.
+    const portrait = window.innerWidth <= 820 && window.innerHeight > window.innerWidth;
+    const m = portrait ? manifest.mobile : undefined;
+    const dir = m ? "/scroll/m" : "/scroll";
+    const fw = m?.width ?? manifest.width;
+    const fh = m?.height ?? manifest.height;
+    const [c0, c1] = m?.crop ?? [0, 1];
+
+    // Draw only when something changed (scroll, resize, a frame arrived) -
+    // never in an idle loop.
+    const schedule = () => {
+      if (pending || cancelled) return;
+      pending = true;
+      raf = requestAnimationFrame(() => {
+        pending = false;
+        render();
       });
-    (async () => {
-      await load(0);
-      for (let i = 1; i < manifest.count && !cancelled; i += 6) {
-        await Promise.all(Array.from({ length: 6 }, (_, k) => i + k).filter((j) => j < manifest.count).map(load));
+    };
+
+    // Coarse to fine: every 16th frame first, then 8th, 4th... so scrubbing
+    // works almost at once, then fills in. 6 downloads at a time; each frame
+    // is decoded off the main thread before it is used (no jank on first draw).
+    const order: number[] = [];
+    const seen = new Set<number>();
+    for (const step of [16, 8, 4, 2, 1]) {
+      for (let i = 0; i < manifest.count; i += step) if (!seen.has(i)) { seen.add(i); order.push(i); }
+    }
+    let done = 0;
+    const loadOne = async (i: number) => {
+      const img = new Image();
+      img.src = `${dir}/frame_${String(i).padStart(3, "0")}.webp`;
+      let ok = true;
+      try {
+        await img.decode();
+      } catch {
+        ok = false; // a missing frame: the nearest loaded one is shown instead
       }
+      if (cancelled) return;
+      if (ok) images[i] = img;
+      done += 1;
+      // update the badge in steps, not once per frame (150 React re-renders)
+      if (done % 15 === 0 || done === manifest.count) setLoaded(done);
+      lastKey = ""; // a closer frame may now be available
+      schedule();
+    };
+    (async () => {
+      let next = 0;
+      const worker = async () => {
+        while (!cancelled && next < order.length) await loadOne(order[next++]);
+      };
+      await Promise.all(Array.from({ length: 6 }, worker));
     })();
 
     const nearestLoaded = (i: number) => {
@@ -93,7 +127,11 @@ export function ScrollStory() {
     };
 
     const drawBox = (det: Det, rx: number, ry: number, rw: number, rh: number, alpha: number, dpr: number) => {
-      const [x1, y1, x2, y2, conf, name] = det;
+      const [fx1, y1, fx2, y2, conf, name] = det;
+      // boxes are stored for the full frame; map them into the portrait slice
+      const x1 = (fx1 - c0) / (c1 - c0);
+      const x2 = (fx2 - c0) / (c1 - c0);
+      if (x2 <= 0 || x1 >= 1) return; // outside the slice
       const color = COLORS[name] ?? "#fff";
       const X = rx + x1 * rw, Y = ry + y1 * rh, W = (x2 - x1) * rw, H = (y2 - y1) * rh;
       const c = Math.min(W, H) * 0.22;
@@ -126,7 +164,6 @@ export function ScrollStory() {
     };
 
     const render = () => {
-      raf = requestAnimationFrame(render);
       const rect = section.getBoundingClientRect();
       const vh = window.innerHeight;
       // p: progress through the intro chapters. pageP: progress through the whole
@@ -138,8 +175,14 @@ export function ScrollStory() {
       if (dimRef.current) dimRef.current.style.opacity = String(dim);
       // The live-camera overlay belongs to the intro; fade it out with the boxes.
       if (hudRef.current) hudRef.current.style.opacity = String(1 - dim);
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const cw = Math.round(window.innerWidth * dpr);
+      // Canvas resolution: never more pixels than the frames actually have
+      // (a 1080p frame on a 2x screen gains nothing from a 4K canvas, it only
+      // costs fill time on every scroll step).
+      const vw = window.innerWidth;
+      const fa0 = fw / fh;
+      const coverCssW = fa0 > vw / vh ? vh * fa0 : vw; // width the frame is drawn at, in CSS px
+      const dpr = Math.min(window.devicePixelRatio || 1, Math.max(1, fw / coverCssW));
+      const cw = Math.round(vw * dpr);
       const ch = Math.round(vh * dpr);
 
       // Text chapters + progress bar (no React re-render needed)
@@ -164,7 +207,7 @@ export function ScrollStory() {
       }
 
       const img = images[idx]!;
-      const fa = manifest.width / manifest.height;
+      const fa = fw / fh;
       const va = cw / ch;
       // Cover the screen. Only a video much narrower than the screen (a portrait
       // clip on a wide monitor) is shown whole over a blurred, enlarged copy;
@@ -199,10 +242,14 @@ export function ScrollStory() {
       if (alpha > 0.01) for (const d of dets) drawBox(d, rx, ry, rw, rh, alpha, dpr);
       if (hudCountRef.current) hudCountRef.current.textContent = String(dets.filter((d) => VEHICLES.has(d[5])).length);
     };
-    raf = requestAnimationFrame(render);
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule, { passive: true });
+    schedule();
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
     };
   }, [manifest]);
 

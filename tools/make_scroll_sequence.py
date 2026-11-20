@@ -58,18 +58,30 @@ def detect(net, frame, conf_thr=0.35, nms_thr=0.45):
     return result
 
 
-def enhance(frame, gamma=0.8):
+def enhance(frame, gamma=0.74):
     """Make dark footage clearer with OpenCV:
-    CLAHE (local contrast) on the lightness channel, a gamma lift for the
-    shadows, and a gentle unsharp mask for crisp edges."""
+    1. non-local-means denoise first - brightening dark footage otherwise
+       amplifies sensor grain into blotches (and grain compresses badly),
+    2. CLAHE (local contrast) on the lightness channel,
+    3. a gamma lift for the shadows,
+    4. an unsharp mask for crisp edges."""
+    frame = cv2.fastNlMeansDenoisingColored(frame, None, 4, 4, 5, 15)
     lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
-    l = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(l)
+    l = cv2.createCLAHE(clipLimit=1.8, tileGridSize=(8, 8)).apply(l)
     frame = cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
     lut = np.array([((i / 255.0) ** gamma) * 255 for i in range(256)], np.uint8)
     frame = cv2.LUT(frame, lut)
-    blur = cv2.GaussianBlur(frame, (0, 0), 1.2)
-    return cv2.addWeighted(frame, 1.35, blur, -0.35, 0)
+    blur = cv2.GaussianBlur(frame, (0, 0), 1.0)
+    return cv2.addWeighted(frame, 1.45, blur, -0.45, 0)
+
+
+def portrait_crop(frame):
+    """Centre 9:16 slice of a landscape frame, for phones. Returns (crop, x0, x1) in source pixels."""
+    h, w = frame.shape[:2]
+    cw = min(w, round(h * 9 / 16))
+    x0 = (w - cw) // 2
+    return frame[:, x0:x0 + cw], x0, x0 + cw
 
 
 def main():
@@ -83,7 +95,10 @@ def main():
     ap.add_argument("--start", type=float, default=0.0, help="start time in seconds (default 0)")
     ap.add_argument("--end", type=float, help="end time in seconds (default: end of video)")
     ap.add_argument("--enhance", action="store_true",
-                    help="brighten and sharpen dark footage (CLAHE + gamma + unsharp mask)")
+                    help="denoise, brighten and sharpen dark footage (NL-means + CLAHE + gamma + unsharp mask)")
+    ap.add_argument("--mobile", type=int, metavar="HEIGHT",
+                    help="also write a portrait (9:16) set for phones, this many pixels tall, to public/scroll/m/")
+    ap.add_argument("--mobile-quality", type=int, default=78, help="WebP quality of the phone set (default 78)")
     args = ap.parse_args()
 
     cap = cv2.VideoCapture(args.video)
@@ -107,12 +122,29 @@ def main():
     shutil.rmtree(OUT, ignore_errors=True)
     OUT.mkdir(parents=True)
 
-    frames_meta, size, total_bytes = [], None, 0
+    if args.mobile:
+        (OUT / "m").mkdir()
+    frames_meta, size, total_bytes, mobile_bytes, mobile_meta = [], None, 0, 0, None
     wanted_set, pos, n = set(wanted.tolist()), int(wanted[0]), 0
     cap.set(cv2.CAP_PROP_POS_FRAMES, pos)  # jump straight to the start of the range
     ok, frame = cap.read()
     while ok and n < len(wanted):
         if pos in wanted_set:
+            if args.mobile:
+                # Cut the phone version from the full-resolution source (sharper than
+                # cropping the desktop frame). Detection boxes stay in full-frame
+                # coordinates; the manifest records which slice the phone frames show.
+                crop, x0, x1 = portrait_crop(frame)
+                mh = min(args.mobile, crop.shape[0])
+                mw = round(mh * crop.shape[1] / crop.shape[0])
+                crop = cv2.resize(crop, (mw, mh), interpolation=cv2.INTER_AREA)
+                if args.enhance:
+                    crop = enhance(crop)
+                mpath = OUT / "m" / f"frame_{n:03d}.webp"
+                cv2.imwrite(str(mpath), crop, [cv2.IMWRITE_WEBP_QUALITY, args.mobile_quality])
+                mobile_bytes += mpath.stat().st_size
+                mobile_meta = {"width": mw, "height": mh,
+                               "crop": [round(x0 / frame.shape[1], 4), round(x1 / frame.shape[1], 4)]}
             h, w = frame.shape[:2]
             s = min(1.0, args.max_side / max(h, w))
             if s < 1.0:
@@ -137,8 +169,12 @@ def main():
     cap.release()
 
     manifest = {"count": n, "width": size[0], "height": size[1], "detections": frames_meta}
+    if mobile_meta:
+        manifest["mobile"] = mobile_meta
     (OUT / "manifest.json").write_text(json.dumps(manifest, separators=(",", ":")))
     print(f"\nWrote {n} frames ({size[0]}x{size[1]}, {total_bytes / 1e6:.1f} MB) + manifest.json to {OUT}")
+    if mobile_meta:
+        print(f"Phone set: {n} frames ({mobile_meta['width']}x{mobile_meta['height']}, {mobile_bytes / 1e6:.1f} MB) in {OUT / 'm'}")
 
 
 if __name__ == "__main__":

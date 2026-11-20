@@ -10,7 +10,7 @@
 .dim {
   position: absolute;
   inset: 0;
-  background: rgba(8, 8, 9, 0.6);
+  background: rgba(8, 8, 9, 0.48); /* the cards on top have their own glass */
   opacity: 0;
 }
 
@@ -40,8 +40,8 @@
   pointer-events: none;
   /* just enough shading to keep the text readable - the video stays clear */
   background:
-    linear-gradient(90deg, rgba(8, 8, 9, 0.55) 0%, rgba(8, 8, 9, 0.18) 32%, rgba(8, 8, 9, 0) 46%),
-    linear-gradient(180deg, rgba(8, 8, 9, 0.35) 0%, rgba(8, 8, 9, 0) 16%, rgba(8, 8, 9, 0) 85%, rgba(8, 8, 9, 0.6) 100%);
+    linear-gradient(90deg, rgba(8, 8, 9, 0.5) 0%, rgba(8, 8, 9, 0.14) 30%, rgba(8, 8, 9, 0) 42%),
+    linear-gradient(180deg, rgba(8, 8, 9, 0.3) 0%, rgba(8, 8, 9, 0) 14%, rgba(8, 8, 9, 0) 88%, rgba(8, 8, 9, 0.5) 100%);
 }
 
 /* HUD - like a live camera overlay */
@@ -56,8 +56,7 @@
   padding: 8px 12px;
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(12, 12, 13, 0.55);
-  backdrop-filter: blur(10px);
+  background: rgba(12, 12, 13, 0.72); /* no backdrop blur: it sits on the redrawing video */
   font: 12px var(--font-mono);
   color: #d8d4cb;
 }
@@ -214,7 +213,8 @@
     height: 360vh;
   }
   .shade {
-    background: linear-gradient(180deg, rgba(8, 8, 9, 0.35) 0%, rgba(8, 8, 9, 0.2) 40%, rgba(8, 8, 9, 0.9) 100%);
+    /* phones: text sits at the bottom, so shade mostly there */
+    background: linear-gradient(180deg, rgba(8, 8, 9, 0.3) 0%, rgba(8, 8, 9, 0.05) 35%, rgba(8, 8, 9, 0.35) 60%, rgba(8, 8, 9, 0.88) 100%);
   }
   .heroChapter,
   .chapter {
